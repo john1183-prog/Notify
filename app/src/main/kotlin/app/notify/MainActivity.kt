@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.notify.engine.HealWorker
 import app.notify.engine.Notifier
 import app.notify.engine.Scheduler
 import app.notify.ui.App
@@ -24,6 +25,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         Notifier.ensureChannel(this)
+        HealWorker.schedule(applicationContext)
         lifecycleScope.launch(Dispatchers.Default) { Scheduler.restore(applicationContext, recompute = false) }
         setContent {
             NotifyTheme {

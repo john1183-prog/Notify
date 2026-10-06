@@ -20,9 +20,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -31,15 +31,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import app.notify.AppVM
+import app.notify.data.Folder
 import app.notify.data.Message
+
+/** The first colour no folder uses yet, so new folders start out distinct. */
+private fun nextHue(folders: List<Folder>, hueCount: Int): Int =
+    (0 until hueCount).firstOrNull { h -> folders.none { it.hue == h } } ?: (folders.size % hueCount)
 
 @Composable
 fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
     val c = Look.c
-    val folders by vm.folders.collectAsState()
+    val foldersN by vm.folders.collectAsState()
     val counts by vm.counts.collectAsState()
-    val total by vm.total.collectAsState()
+    val totalN by vm.total.collectAsState()
     var adding by remember { mutableStateOf(false) }
+
+    val folders = foldersN
+    val total = totalN
+    if (folders == null || total == null) {
+        Box(Modifier.fillMaxSize()) // still loading
+        return
+    }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 20.dp)) {
         item {
@@ -66,7 +78,7 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
                 Box(Modifier.size(14.dp).clip(CircleShape).background(hueOf(f.hue)))
                 GapW(16)
                 Text(f.name, style = Type.heading, color = c.ink, modifier = Modifier.weight(1f))
-                Text("${counts[f.id] ?: 0}", style = Type.body, color = c.dim)
+                Text("${counts?.get(f.id) ?: 0}", style = Type.body, color = c.dim)
             }
         }
         item {
@@ -89,6 +101,7 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
         FolderDialog(
             initial = null,
             wordCount = 0,
+            defaultHue = nextHue(folders, c.hues.size),
             onDismiss = { adding = false },
             onSave = { name, hue -> vm.addFolder(name, hue); adding = false },
             onDelete = null,
@@ -99,20 +112,23 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
 @Composable
 fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
     val c = Look.c
-    val folders by vm.folders.collectAsState()
-    val words by remember(folderId) { vm.messages(folderId) }.collectAsState(initial = emptyList())
+    val foldersN by vm.folders.collectAsState()
+    val wordsN by remember(folderId) { vm.messages(folderId) }
+        .collectAsState<List<Message>, List<Message>?>(initial = null)
     var editingFolder by remember { mutableStateOf(false) }
     var editingWord by remember { mutableStateOf<Message?>(null) }
     var addMode by remember { mutableStateOf<Boolean?>(null) } // null = closed, false = one word, true = many
 
-    val folder = folders.firstOrNull { it.id == folderId }
-    LaunchedEffect(folder == null && folders.isNotEmpty()) { if (folder == null && folders.isNotEmpty()) onBack() }
+    val folder = foldersN?.firstOrNull { it.id == folderId }
+    // Leave this screen once the folder is gone (deleted), but not while folders are still loading.
+    LaunchedEffect(foldersN != null, folder == null) { if (foldersN != null && folder == null) onBack() }
     if (folder == null) return
 
+    val words = wordsN
     val hue = hueOf(folder.hue)
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             TextAction("‹ Bank", onBack, color = c.dim)
             Box(Modifier.weight(1f))
             TextAction("Edit folder", { editingFolder = true })
@@ -127,15 +143,18 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
                     }
                     Gap(8)
                     Text(
-                        if (words.isEmpty()) "Nothing here yet. Add a verse, a quote or a lesson you want to keep."
-                        else "A word's colour deepens each time it is delivered.",
+                        when {
+                            words == null -> ""
+                            words.isEmpty() -> "Nothing here yet. Add a verse, a quote or a lesson you want to keep."
+                            else -> "A word's colour deepens each time it is delivered."
+                        },
                         style = Type.body,
                         color = c.dim,
                     )
                     Gap(24)
                 }
             }
-            items(words, key = { it.id }) { w ->
+            items(words ?: emptyList(), key = { it.id }) { w ->
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -156,7 +175,7 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
             }
         }
         Row(
-            Modifier.fillMaxWidth().background(c.raised).padding(horizontal = 24.dp, vertical = 14.dp),
+            Modifier.fillMaxWidth().background(c.raised).padding(horizontal = 24.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             InkButton("Add a word", { addMode = false })
@@ -168,7 +187,8 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
     if (editingFolder) {
         FolderDialog(
             initial = folder,
-            wordCount = words.size,
+            wordCount = words?.size ?: 0,
+            defaultHue = folder.hue,
             onDismiss = { editingFolder = false },
             onSave = { name, h -> vm.updateFolder(folder.copy(name = name, hue = h)); editingFolder = false },
             onDelete = { editingFolder = false; vm.deleteFolder(folder) },

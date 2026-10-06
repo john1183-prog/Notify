@@ -1,5 +1,6 @@
 package app.notify.ui
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -10,6 +11,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -50,10 +52,17 @@ private val Fog = Palette(
 )
 
 private val LocalPalette = staticCompositionLocalOf { Slate }
+val LocalIs24 = staticCompositionLocalOf { true }
+
+val HueNames = listOf("Cobalt", "Saffron", "Rose", "Viridian", "Violet", "Tangerine")
 
 object Look {
     val c: Palette
         @Composable @ReadOnlyComposable get() = LocalPalette.current
+
+    /** Follows the phone's 12 or 24 hour clock setting. */
+    val is24: Boolean
+        @Composable @ReadOnlyComposable get() = LocalIs24.current
 }
 
 /** Serif is reserved for the words themselves; everything else is sans. */
@@ -79,7 +88,8 @@ fun NotifyTheme(content: @Composable () -> Unit) {
     } else {
         lightColorScheme(primary = p.ink, onPrimary = p.bg, background = p.bg, onBackground = p.ink, surface = p.raised, onSurface = p.ink)
     }
-    CompositionLocalProvider(LocalPalette provides p) {
+    val is24 = DateFormat.is24HourFormat(LocalContext.current)
+    CompositionLocalProvider(LocalPalette provides p, LocalIs24 provides is24) {
         MaterialTheme(colorScheme = scheme, content = content)
     }
 }

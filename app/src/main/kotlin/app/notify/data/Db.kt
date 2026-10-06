@@ -35,11 +35,18 @@ abstract class BankDao {
     @Query("SELECT * FROM messages ORDER BY RANDOM() LIMIT 1")
     abstract suspend fun randomMessage(): Message?
 
-    @Query("SELECT * FROM messages ORDER BY folderId, id")
-    abstract suspend fun allMessages(): List<Message>
+    @Query("SELECT * FROM messages WHERE id != :id ORDER BY RANDOM() LIMIT 1")
+    abstract suspend fun randomOther(id: Long): Message?
 
-    @Query("SELECT * FROM messages WHERE folderId IN (:folderIds) ORDER BY folderId, id")
-    abstract suspend fun messagesIn(folderIds: List<Long>): List<Message>
+    @Query("SELECT * FROM messages WHERE id = :id")
+    abstract suspend fun message(id: Long): Message?
+
+    /** Ids only: delivery never needs to load every word's text. */
+    @Query("SELECT id FROM messages ORDER BY folderId, id")
+    abstract suspend fun poolIds(): List<Long>
+
+    @Query("SELECT id FROM messages WHERE folderId IN (:folderIds) ORDER BY folderId, id")
+    abstract suspend fun poolIdsIn(folderIds: List<Long>): List<Long>
 
     @Insert abstract suspend fun insertMessages(m: List<Message>)
     @Update abstract suspend fun updateMessage(m: Message)
@@ -82,6 +89,9 @@ abstract class BankDao {
 
     @Query("UPDATE rhythms SET cursor = :cursor, bag = :bag, lastFiredAt = :t WHERE id = :id")
     abstract suspend fun saveProgress(id: Long, cursor: Int, bag: String, t: Long)
+
+    @Query("UPDATE rhythms SET lastFiredAt = :t WHERE id = :id")
+    abstract suspend fun saveFired(id: Long, t: Long)
 
     @Query("UPDATE rhythms SET nextAt = :t WHERE id = :id")
     abstract suspend fun saveNext(id: Long, t: Long)

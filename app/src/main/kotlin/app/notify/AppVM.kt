@@ -9,7 +9,9 @@ import app.notify.data.Message
 import app.notify.data.Rhythm
 import app.notify.engine.Scheduler
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -19,19 +21,32 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     private val dao = Db.get(app).dao()
     private val ctx: Application get() = getApplication()
 
-    private fun <T> Flow<T>.hot(initial: T) =
-        stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)
+    // Null means "still loading", so screens can stay quiet instead of flashing empty-state text.
+    private fun <T> Flow<T>.hot(): StateFlow<T?> =
+        stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val folders = dao.folders().hot(emptyList())
-    val counts = dao.counts().map { l -> l.associate { it.folderId to it.n } }.hot(emptyMap())
-    val total = dao.messageCount().hot(0)
-    val rhythms = dao.rhythms().hot(emptyList())
+    val folders = dao.folders().hot()
+    val counts = dao.counts().map { l -> l.associate { it.folderId to it.n } }.hot()
+    val total = dao.messageCount().hot()
+    val rhythms = dao.rhythms().hot()
     val links = dao.links()
         .map { l -> l.groupBy({ it.rhythmId }, { it.folderId }).mapValues { it.value.toSet() } }
-        .hot(emptyMap())
+        .hot()
 
     fun messages(folderId: Long): Flow<List<Message>> = dao.messages(folderId)
-    suspend fun draw(): Message? = dao.randomMessage()
+
+    // The word shown on Today lives here so it survives switching tabs.
+    private val _hero = MutableStateFlow<Message?>(null)
+    val hero: StateFlow<Message?> = _hero
+
+    /** Keeps the current word if it still exists (picking up edits), otherwise draws a new one. */
+    fun refreshHero() = viewModelScope.launch {
+        _hero.value = _hero.value?.let { dao.message(it.id) } ?: dao.randomMessage()
+    }
+
+    fun nextHero() = viewModelScope.launch {
+        _hero.value = dao.randomOther(_hero.value?.id ?: 0) ?: dao.randomMessage()
+    }
 
     fun addFolder(name: String, hue: Int) = viewModelScope.launch {
         dao.insertFolder(Folder(name = name.trim(), hue = hue))

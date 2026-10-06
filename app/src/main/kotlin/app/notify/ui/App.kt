@@ -2,7 +2,7 @@ package app.notify.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.notify.AppVM
 
@@ -63,7 +64,7 @@ private fun NavBar(selected: Int, onSelect: (Int) -> Unit) {
         Tabs.forEachIndexed { i, name ->
             val on = i == selected
             Column(
-                Modifier.weight(1f).clickable { onSelect(i) }.padding(bottom = 16.dp),
+                Modifier.weight(1f).selectable(selected = on, role = Role.Tab, onClick = { onSelect(i) }).padding(bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(Modifier.width(32.dp).height(3.dp).background(if (on) c.ink else Color.Transparent))

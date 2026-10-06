@@ -3,16 +3,20 @@ package app.notify.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
@@ -30,6 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.notify.AppVM
@@ -37,15 +44,18 @@ import app.notify.data.Folder
 import app.notify.data.Rhythm
 import app.notify.engine.joinTimes
 import app.notify.engine.parseTimes
+import app.notify.engine.windowMinutes
+
+private val DayNames = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
 /** One plain sentence that says everything a rhythm does. */
-private fun describe(r: Rhythm, folderNames: List<String>): String {
+private fun describe(r: Rhythm, folderNames: List<String>, is24: Boolean): String {
     val source = if (folderNames.isEmpty()) "the whole bank" else joinList(folderNames)
     val order = if (r.shuffle) "shuffled" else "in order"
     val timing = if (r.fixedTimes) {
-        "at " + joinList(parseTimes(r.times).map { hhmm(it) })
+        "at " + joinList(parseTimes(r.times).map { hhmm(it, is24) })
     } else {
-        "${r.perDay} ${if (r.perDay == 1) "time" else "times"} a day between ${hhmm(r.windowStart)} and ${hhmm(r.windowEnd)}"
+        "${r.perDay} ${if (r.perDay == 1) "time" else "times"} a day between ${hhmm(r.windowStart, is24)} and ${hhmm(r.windowEnd, is24)}"
     }
     val days = if ((r.days and 127) == 127) "" else " on ${daysText(r.days)}"
     return "Words from $source, $order, $timing$days."
@@ -54,11 +64,20 @@ private fun describe(r: Rhythm, folderNames: List<String>): String {
 @Composable
 fun RhythmScreen(vm: AppVM) {
     val c = Look.c
-    val rhythms by vm.rhythms.collectAsState()
-    val folders by vm.folders.collectAsState()
-    val links by vm.links.collectAsState()
+    val is24 = Look.is24
+    val rhythmsN by vm.rhythms.collectAsState()
+    val foldersN by vm.folders.collectAsState()
+    val linksN by vm.links.collectAsState()
     var editing by remember { mutableStateOf<Rhythm?>(null) }
     var creating by remember { mutableStateOf(false) }
+
+    val rhythms = rhythmsN
+    val folders = foldersN
+    val links = linksN
+    if (rhythms == null || folders == null || links == null) {
+        Box(Modifier.fillMaxSize()) // still loading
+        return
+    }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 20.dp)) {
         item {
@@ -89,23 +108,24 @@ fun RhythmScreen(vm: AppVM) {
         }
         items(rhythms, key = { it.id }) { r ->
             val names = folders.filter { it.id in (links[r.id] ?: emptySet()) }.map { it.name }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable { editing = r }
-                    .padding(horizontal = 4.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // The text and the switch are separate targets so a screen reader can reach both.
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { editing = r }
+                        .padding(horizontal = 4.dp, vertical = 14.dp),
+                ) {
                     Text(r.name, style = Type.heading, color = if (r.enabled) c.ink else c.dim)
                     Gap(4)
-                    Caption(describe(r, names))
+                    Caption(describe(r, names, is24))
                 }
                 GapW(12)
                 Switch(
                     checked = r.enabled,
                     onCheckedChange = { vm.setEnabled(r, it) },
+                    modifier = Modifier.semantics { contentDescription = "${r.name} on or off" },
                     colors = SwitchDefaults.colors(
                         checkedTrackColor = c.ink,
                         checkedThumbColor = c.bg,
@@ -154,7 +174,8 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun TimeChip(minutes: Int, onClick: () -> Unit) = Pill(hhmm(minutes), selected = false, onClick = onClick)
+private fun TimeChip(minutes: Int, is24: Boolean, onClick: () -> Unit) =
+    Pill(hhmm(minutes, is24), selected = false, onClick = onClick, isChoice = false)
 
 @Composable
 fun RhythmEditor(
@@ -166,6 +187,7 @@ fun RhythmEditor(
     onDelete: (() -> Unit)?,
 ) {
     val c = Look.c
+    val is24 = Look.is24
     val ctx = LocalContext.current
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var shuffle by remember { mutableStateOf(initial?.shuffle ?: true) }
@@ -178,7 +200,8 @@ fun RhythmEditor(
     var picked by remember { mutableStateOf(linked) }
     var confirming by remember { mutableStateOf(false) }
 
-    val timingOk = if (fixed) times.isNotEmpty() else windowEnd - windowStart >= 30
+    val windowLen = windowMinutes(windowStart, windowEnd)
+    val timingOk = if (fixed) times.isNotEmpty() else windowLen >= 30
     val valid = timingOk && (days and 127) != 0
 
     SheetDialog(onDismiss) {
@@ -196,8 +219,10 @@ fun RhythmEditor(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable { picked = if (on) picked - f.id else picked + f.id }
-                        .padding(vertical = 8.dp),
+                        .toggleable(value = on, role = Role.Checkbox, onValueChange = {
+                            picked = if (on) picked - f.id else picked + f.id
+                        })
+                        .padding(vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
@@ -228,28 +253,27 @@ fun RhythmEditor(
             GapW(8)
             Pill("Fixed times", fixed, { fixed = true })
         }
-        Gap(14)
+        Gap(8)
         if (fixed) {
             times.forEach { t ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TimeChip(t) { pickTime(ctx, t) { n -> times = (times - t + n).distinct().sorted() } }
+                    TimeChip(t, is24) { pickTime(ctx, t, is24) { n -> times = (times - t + n).distinct().sorted() } }
                     TextAction("Remove", { times = times - t }, color = c.dim)
                 }
-                Gap(6)
             }
-            TextAction("Add a time", { pickTime(ctx, 540) { n -> times = (times + n).distinct().sorted() } })
+            TextAction("Add a time", { pickTime(ctx, 540, is24) { n -> times = (times + n).distinct().sorted() } })
             if (times.isEmpty()) Caption("Add at least one time.")
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Between", style = Type.body, color = c.dim)
-                GapW(10)
-                TimeChip(windowStart) { pickTime(ctx, windowStart) { windowStart = it } }
-                GapW(10)
-                Text("and", style = Type.body, color = c.dim)
-                GapW(10)
-                TimeChip(windowEnd) { pickTime(ctx, windowEnd) { windowEnd = it } }
+                Text("From", style = Type.body, color = c.dim, modifier = Modifier.width(60.dp))
+                TimeChip(windowStart, is24) { pickTime(ctx, windowStart, is24) { windowStart = it } }
             }
-            Gap(10)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Until", style = Type.body, color = c.dim, modifier = Modifier.width(60.dp))
+                TimeChip(windowEnd, is24) { pickTime(ctx, windowEnd, is24) { windowEnd = it } }
+            }
+            if (windowLen < 30) Caption("The window needs to be at least 30 minutes long.")
+            else if (windowEnd <= windowStart) Caption("This window runs overnight, into the next day.")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Words per day", style = Type.body, color = c.dim)
                 Box(Modifier.weight(1f))
@@ -257,23 +281,29 @@ fun RhythmEditor(
                 Text("$perDay", style = Type.heading, color = c.ink)
                 TextAction("+", { perDay = (perDay + 1).coerceAtMost(24) })
             }
-            if (windowEnd - windowStart < 30) Caption("The window needs to be at least 30 minutes long.")
         }
 
         SectionTitle("Days")
-        Row {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             listOf("S", "M", "T", "W", "T", "F", "S").forEachIndexed { bit, letter ->
                 val on = (days and (1 shl bit)) != 0
                 Box(
                     Modifier
-                        .size(38.dp)
+                        .weight(1f)
+                        .aspectRatio(1f)
                         .clip(CircleShape)
                         .background(if (on) c.ink else Color.Transparent)
                         .border(1.dp, if (on) c.ink else c.line, CircleShape)
-                        .clickable { days = days xor (1 shl bit) },
+                        .toggleable(value = on, role = Role.Checkbox, onValueChange = { days = days xor (1 shl bit) }),
                     contentAlignment = Alignment.Center,
-                ) { Text(letter, style = Type.action, color = if (on) c.bg else c.dim) }
-                GapW(6)
+                ) {
+                    Text(
+                        letter,
+                        style = Type.action,
+                        color = if (on) c.bg else c.dim,
+                        modifier = Modifier.semantics { contentDescription = DayNames[bit] },
+                    )
+                }
             }
         }
         if ((days and 127) == 0) {
@@ -298,9 +328,10 @@ fun RhythmEditor(
                 GapW(8)
                 InkButton("Save", {
                     val base = initial ?: Rhythm(name = "")
+                    val folderNames = folders.filter { it.id in picked }.map { it.name }
                     onSave(
                         base.copy(
-                            name = name.trim().ifEmpty { "Rhythm" },
+                            name = name.trim().ifEmpty { folderNames.firstOrNull() ?: "Rhythm" },
                             shuffle = shuffle,
                             fixedTimes = fixed,
                             windowStart = windowStart,

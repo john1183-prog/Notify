@@ -27,9 +27,16 @@ object Notifier {
         }
     }
 
+    /** False when notifications, or this channel, are switched off, so deliveries are not counted. */
+    fun canPost(ctx: Context): Boolean {
+        if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled()) return false
+        val channel = ctx.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL)
+        return channel == null || channel.importance != NotificationManager.IMPORTANCE_NONE
+    }
+
     /** One notification slot per rhythm, so a new word replaces the last instead of piling up. */
     @SuppressLint("MissingPermission")
-    fun post(ctx: Context, r: Rhythm, m: Message) {
+    fun post(ctx: Context, r: Rhythm, m: Message): Boolean {
         ensureChannel(ctx)
         val open = PendingIntent.getActivity(
             ctx,
@@ -49,10 +56,11 @@ object Notifier {
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
-        try {
+        return try {
             NotificationManagerCompat.from(ctx).notify(r.id.toInt(), n)
+            true
         } catch (_: SecurityException) {
-            // Notification permission missing; the Today screen explains how to grant it.
+            false // Permission missing; the Today screen explains how to grant it.
         }
     }
 }

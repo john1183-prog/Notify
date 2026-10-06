@@ -1,7 +1,9 @@
 package app.notify.ui
 
 import android.app.TimePickerDialog
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,12 +11,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -27,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -54,19 +59,38 @@ fun Caption(text: String, modifier: Modifier = Modifier, color: Color = Look.c.d
     Text(text, style = Type.small, color = color, modifier = modifier)
 }
 
-/** A choice chip. Selected is filled with ink, so colour stays reserved for folders and words. */
+/**
+ * A chip. Choices (isChoice) behave like radio buttons for screen readers; the rest are plain buttons.
+ * Selected is filled with ink, so colour stays reserved for folders and words.
+ * The tappable area is at least 48dp tall even though the chip itself is slimmer.
+ */
 @Composable
-fun Pill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun Pill(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isChoice: Boolean = true,
+) {
     val c = Look.c
+    val tap = if (isChoice) {
+        Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+    } else {
+        Modifier.clickable(role = Role.Button, onClick = onClick)
+    }
     Box(
-        modifier
-            .clip(CircleShape)
-            .background(if (selected) c.ink else Color.Transparent)
-            .border(1.dp, if (selected) c.ink else c.line, CircleShape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+        modifier.defaultMinSize(minHeight = 48.dp).clip(CircleShape).then(tap),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = Type.body, color = if (selected) c.bg else c.ink)
+        Box(
+            Modifier
+                .clip(CircleShape)
+                .background(if (selected) c.ink else Color.Transparent)
+                .border(1.dp, if (selected) c.ink else c.line, CircleShape)
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+        ) {
+            Text(text, style = Type.body, color = if (selected) c.bg else c.ink)
+        }
     }
 }
 
@@ -75,9 +99,10 @@ fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, 
     val c = Look.c
     Box(
         modifier
+            .defaultMinSize(minHeight = 48.dp)
             .clip(CircleShape)
             .background(if (enabled) c.ink else c.line)
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 22.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -87,15 +112,16 @@ fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, 
 
 @Composable
 fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Look.c.ink) {
-    Text(
-        text,
-        style = Type.action,
-        color = color,
-        modifier = modifier
+    Box(
+        modifier
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .clip(CircleShape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-    )
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = Type.action, color = color)
+    }
 }
 
 /** Underline-only text field: quieter than a boxed field, and the words stay the focus. */
@@ -163,6 +189,15 @@ fun Banner(text: String, action: String, onClick: () -> Unit) {
 }
 
 /** Platform time picker: familiar, accessible, and adds no dependency. */
-fun pickTime(ctx: Context, initial: Int, onPick: (Int) -> Unit) {
-    TimePickerDialog(ctx, { _, h, m -> onPick(h * 60 + m) }, initial / 60, initial % 60, true).show()
+fun pickTime(ctx: Context, initial: Int, is24: Boolean, onPick: (Int) -> Unit) {
+    TimePickerDialog(ctx, { _, h, m -> onPick(h * 60 + m) }, initial / 60, initial % 60, is24).show()
+}
+
+/** Settings screens differ between phone makers; never crash if one is missing. */
+fun safeStart(ctx: Context, intent: Intent) {
+    try {
+        ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: ActivityNotFoundException) {
+    } catch (_: SecurityException) {
+    }
 }

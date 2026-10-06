@@ -28,6 +28,9 @@ fun joinTimes(l: List<Int>): String = l.distinct().sorted().joinToString(",")
 fun parseIds(s: String): List<Long> =
     if (s.isEmpty()) emptyList() else s.split(',').mapNotNull { it.toLongOrNull() }
 
+/** Length in minutes of a window that may cross midnight (22:00 to 05:00 is 420). */
+fun windowMinutes(start: Int, end: Int): Int = ((end - start) % 1440 + 1440) % 1440
+
 fun dayAllowed(days: Int, d: LocalDate): Boolean =
     (days and (1 shl (d.dayOfWeek.value % 7))) != 0
 
@@ -37,7 +40,8 @@ fun dayAllowed(days: Int, d: LocalDate): Boolean =
  * Fixed plans return the next listed clock time on an allowed day.
  * Random plans split the window into [Plan.perDay] equal slices and fire once at a random
  * moment inside each slice. That keeps arrivals unpredictable but evenly spread through the day.
- * [lastFiredMs] stops a slice from firing twice.
+ * [lastFiredMs] stops a slice from firing twice. A window whose end is earlier than its start
+ * runs overnight and belongs to the day it starts on.
  */
 fun nextFire(p: Plan, after: ZonedDateTime, lastFiredMs: Long, rnd: Random): ZonedDateTime? {
     if ((p.days and 127) == 0) return null
@@ -45,7 +49,8 @@ fun nextFire(p: Plan, after: ZonedDateTime, lastFiredMs: Long, rnd: Random): Zon
     val zone = after.zone
     val afterSec = after.toEpochSecond()
     val lastSec = lastFiredMs / 1000
-    for (offset in 0..7) {
+    // A window that crosses midnight began yesterday, so random plans also look one day back.
+    for (offset in (if (p.fixed) 0 else -1)..7) {
         val date = after.toLocalDate().plusDays(offset.toLong())
         if (!dayAllowed(p.days, date)) continue
         if (p.fixed) {
@@ -56,7 +61,7 @@ fun nextFire(p: Plan, after: ZonedDateTime, lastFiredMs: Long, rnd: Random): Zon
         } else {
             val n = p.perDay.coerceIn(1, 24)
             val base = date.atTime(p.windowStart / 60, p.windowStart % 60).atZone(zone).toEpochSecond()
-            val len = (p.windowEnd - p.windowStart).coerceAtLeast(1) * 60L
+            val len = windowMinutes(p.windowStart, p.windowEnd).coerceAtLeast(1) * 60L
             for (i in 0 until n) {
                 val s = base + len * i / n
                 val e = base + len * (i + 1) / n
