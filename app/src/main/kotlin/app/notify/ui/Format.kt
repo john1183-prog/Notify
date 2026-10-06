@@ -30,6 +30,14 @@ fun daysText(days: Int): String = when (days and 127) {
         .joinToString(", ")
 }
 
+/** Pasted text: blank lines separate longer words; with none, every line is its own word. */
+fun splitWords(text: String): List<String> {
+    val t = text.replace("\r\n", "\n").trim()
+    val blank = Regex("\n\\s*\n")
+    val parts = if (blank.containsMatchIn(t)) t.split(blank) else t.split("\n")
+    return parts.map { it.trim() }.filter { it.isNotEmpty() }
+}
+
 fun deliveredText(n: Int): String = when (n) {
     0 -> "Not delivered yet"
     1 -> "Delivered once"

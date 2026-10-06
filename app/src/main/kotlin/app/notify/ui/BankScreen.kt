@@ -1,5 +1,7 @@
 package app.notify.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -23,8 +25,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +50,16 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
     val counts by vm.counts.collectAsState()
     val totalN by vm.total.collectAsState()
     var adding by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var editingWord by remember { mutableStateOf<Message?>(null) }
+    val results by remember(query) { vm.search(query) }.collectAsState(initial = emptyList())
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) vm.exportTo(uri)
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importFrom(uri)
+    }
 
     val folders = foldersN
     val total = totalN
@@ -52,6 +67,7 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
         Box(Modifier.fillMaxSize()) // still loading
         return
     }
+    val searching = query.isNotBlank()
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 20.dp)) {
         item {
@@ -63,36 +79,75 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
                     style = Type.body,
                     color = c.dim,
                 )
-                Gap(24)
-            }
-        }
-        items(folders, key = { it.id }) { f ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable { onOpen(f.id) }
-                    .padding(horizontal = 4.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(14.dp).clip(CircleShape).background(hueOf(f.hue)))
-                GapW(16)
-                Text(f.name, style = Type.heading, color = c.ink, modifier = Modifier.weight(1f))
-                Text("${counts?.get(f.id) ?: 0}", style = Type.body, color = c.dim)
-            }
-        }
-        item {
-            Column {
-                Gap(20)
-                if (folders.isEmpty()) {
-                    Text(
-                        "Folders keep your words apart: verses in one, quotes in another. Make your first folder to begin.",
-                        style = Type.body,
-                        color = c.dim,
-                    )
+                if (total > 0) {
                     Gap(16)
+                    LineField(query, { query = it }, hint = "Search every word")
                 }
-                InkButton("New folder", { adding = true })
+                Gap(18)
+            }
+        }
+        if (searching) {
+            if (results.isEmpty()) {
+                item { Text("No word matches.", style = Type.body, color = c.dim) }
+            }
+            items(results, key = { it.id }) { w ->
+                val folder = folders.firstOrNull { it.id == w.folderId }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { editingWord = w },
+                ) {
+                    Box(
+                        Modifier.fillMaxHeight().width(4.dp).clip(CircleShape)
+                            .background(soakColor(hueOf(folder?.hue ?: 0), w.shown)),
+                    )
+                    GapW(16)
+                    Column(Modifier.padding(vertical = 12.dp)) {
+                        Text(w.text, style = Type.word, color = c.ink)
+                        Gap(4)
+                        Caption(folder?.name ?: "")
+                    }
+                }
+            }
+        } else {
+            items(folders, key = { it.id }) { f ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onOpen(f.id) }
+                        .padding(horizontal = 4.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(14.dp).clip(CircleShape).background(hueOf(f.hue)))
+                    GapW(16)
+                    Text(f.name, style = Type.heading, color = c.ink, modifier = Modifier.weight(1f))
+                    Text("${counts?.get(f.id) ?: 0}", style = Type.body, color = c.dim)
+                }
+            }
+            item {
+                Column {
+                    Gap(20)
+                    if (folders.isEmpty()) {
+                        Text(
+                            "Folders keep your words apart: verses in one, quotes in another. Make your first folder to begin.",
+                            style = Type.body,
+                            color = c.dim,
+                        )
+                        Gap(16)
+                    }
+                    InkButton("New folder", { adding = true })
+                    Gap(40)
+                    Text("Back up", style = Type.heading, color = c.ink)
+                    Gap(6)
+                    Caption("Export saves every folder, word and rhythm to a file you keep. Import adds them back and skips words you already have.")
+                    Row {
+                        TextAction("Export", { exportLauncher.launch("notify-bank.json") })
+                        TextAction("Import", { importLauncher.launch(arrayOf("*/*")) })
+                    }
+                }
             }
         }
     }
@@ -103,8 +158,21 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
             wordCount = 0,
             defaultHue = nextHue(folders, c.hues.size),
             onDismiss = { adding = false },
-            onSave = { name, hue -> vm.addFolder(name, hue); adding = false },
+            // The new folder opens straight away, ready for its first word.
+            onSave = { name, hue -> vm.addFolder(name, hue) { id -> onOpen(id) }; adding = false },
             onDelete = null,
+        )
+    }
+    editingWord?.let { w ->
+        MessageDialog(
+            initial = w,
+            bulk = false,
+            folders = folders,
+            folderId = w.folderId,
+            onDismiss = { editingWord = null },
+            onSave = { t, l, fid -> vm.updateMessage(w.copy(text = t.trim(), label = l.trim(), folderId = fid)); editingWord = null },
+            onSaveAndNext = null,
+            onDelete = { vm.deleteMessage(w); editingWord = null },
         )
     }
 }
@@ -118,6 +186,7 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
     var editingFolder by remember { mutableStateOf(false) }
     var editingWord by remember { mutableStateOf<Message?>(null) }
     var addMode by remember { mutableStateOf<Boolean?>(null) } // null = closed, false = one word, true = many
+    var dialogKey by remember { mutableIntStateOf(0) }
 
     val folder = foldersN?.firstOrNull { it.id == folderId }
     // Leave this screen once the folder is gone (deleted), but not while folders are still loading.
@@ -125,6 +194,7 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
     if (folder == null) return
 
     val words = wordsN
+    val allFolders = foldersN ?: emptyList()
     val hue = hueOf(folder.hue)
 
     Column(Modifier.fillMaxSize()) {
@@ -198,22 +268,34 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
         MessageDialog(
             initial = w,
             bulk = false,
+            folders = allFolders,
+            folderId = w.folderId,
             onDismiss = { editingWord = null },
-            onSave = { t, l -> vm.updateMessage(w.copy(text = t.trim(), label = l.trim())); editingWord = null },
+            onSave = { t, l, fid -> vm.updateMessage(w.copy(text = t.trim(), label = l.trim(), folderId = fid)); editingWord = null },
+            onSaveAndNext = null,
             onDelete = { vm.deleteMessage(w); editingWord = null },
         )
     }
     addMode?.let { many ->
-        MessageDialog(
-            initial = null,
-            bulk = many,
-            onDismiss = { addMode = null },
-            onSave = { t, l ->
-                val texts = if (many) t.lines().map { it.trim() }.filter { it.isNotEmpty() } else listOf(t.trim())
-                vm.addMessages(folderId, texts, if (many) "" else l.trim())
-                addMode = null
-            },
-            onDelete = null,
-        )
+        // The key resets the dialog's fields after "Save and add another".
+        key(dialogKey) {
+            MessageDialog(
+                initial = null,
+                bulk = many,
+                folders = allFolders,
+                folderId = folderId,
+                onDismiss = { addMode = null },
+                onSave = { t, l, _ ->
+                    val texts = if (many) splitWords(t) else listOf(t.trim())
+                    vm.addMessages(folderId, texts, if (many) "" else l.trim())
+                    addMode = null
+                },
+                onSaveAndNext = if (many) null else { t, l ->
+                    vm.addMessages(folderId, listOf(t.trim()), l.trim())
+                    dialogKey++
+                },
+                onDelete = null,
+            )
+        }
     }
 }

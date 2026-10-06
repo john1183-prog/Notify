@@ -41,6 +41,20 @@ abstract class BankDao {
     @Query("SELECT * FROM messages WHERE id = :id")
     abstract suspend fun message(id: Long): Message?
 
+    /** Case-insensitive match on text or source, without LIKE wildcards getting in the way. */
+    @Query("SELECT * FROM messages WHERE instr(lower(text), lower(:q)) > 0 OR instr(lower(label), lower(:q)) > 0 ORDER BY folderId, id LIMIT 100")
+    abstract fun search(q: String): Flow<List<Message>>
+
+    // One-shot snapshots for backup and import
+    @Query("SELECT * FROM folders ORDER BY id")
+    abstract suspend fun foldersOnce(): List<Folder>
+
+    @Query("SELECT * FROM messages ORDER BY folderId, id")
+    abstract suspend fun wordsOnce(): List<Message>
+
+    @Query("SELECT * FROM rhythm_folders")
+    abstract suspend fun linksOnce(): List<RhythmFolder>
+
     /** Ids only: delivery never needs to load every word's text. */
     @Query("SELECT id FROM messages ORDER BY folderId, id")
     abstract suspend fun poolIds(): List<Long>

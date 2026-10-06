@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,7 +45,7 @@ fun FolderDialog(
     SheetDialog(onDismiss) {
         Text(if (initial == null) "New folder" else "Edit folder", style = Type.heading, color = c.ink)
         Gap(16)
-        LineField(name, { name = it }, hint = "Folder name", style = Type.heading)
+        LineField(name, { name = it }, hint = "Folder name", style = Type.heading, autoFocus = initial == null)
         Gap(22)
         Text("Colour", style = Type.small, color = c.dim)
         Gap(10)
@@ -89,13 +91,17 @@ fun FolderDialog(
 fun MessageDialog(
     initial: Message?,
     bulk: Boolean,
+    folders: List<Folder>,
+    folderId: Long,
     onDismiss: () -> Unit,
-    onSave: (text: String, label: String) -> Unit,
+    onSave: (text: String, label: String, folderId: Long) -> Unit,
+    onSaveAndNext: ((text: String, label: String) -> Unit)?,
     onDelete: (() -> Unit)?,
 ) {
     val c = Look.c
     var text by remember { mutableStateOf(initial?.text ?: "") }
     var label by remember { mutableStateOf(initial?.label ?: "") }
+    var target by remember { mutableStateOf(folderId) }
 
     SheetDialog(onDismiss) {
         Text(
@@ -111,22 +117,55 @@ fun MessageDialog(
         LineField(
             text,
             { text = it },
-            hint = if (bulk) "One word per line" else "A verse, a quote, a lesson",
+            hint = if (bulk) "One word per line, or a blank line between longer words" else "A verse, a quote, a lesson",
             style = Type.word,
             singleLine = false,
             minLines = if (bulk) 6 else 3,
+            autoFocus = initial == null,
         )
         if (!bulk) {
             Gap(14)
             LineField(label, { label = it }, hint = "Source, such as John 3:16 (optional)")
         }
-        Gap(26)
+        if (initial != null && folders.size > 1) {
+            Gap(20)
+            Text("Folder", style = Type.small, color = c.dim)
+            folders.forEach { f ->
+                val on = f.id == target
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .selectable(selected = on, role = Role.RadioButton, onClick = { target = f.id })
+                        .padding(vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(if (on) hueOf(f.hue) else Color.Transparent)
+                            .border(1.dp, if (on) hueOf(f.hue) else c.line, CircleShape),
+                    )
+                    GapW(12)
+                    Text(f.name, style = Type.body, color = if (on) c.ink else c.dim)
+                }
+            }
+        }
+        Gap(22)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (onDelete != null) TextAction("Delete", onDelete, color = hueOf(2))
             Box(Modifier.weight(1f))
             TextAction("Cancel", onDismiss, color = c.dim)
             GapW(8)
-            InkButton("Save", { onSave(text, label) }, enabled = text.isNotBlank())
+            InkButton("Save", { onSave(text, label, target) }, enabled = text.isNotBlank())
+        }
+        if (onSaveAndNext != null) {
+            TextAction(
+                "Save and add another",
+                { if (text.isNotBlank()) onSaveAndNext(text, label) },
+                color = if (text.isNotBlank()) c.ink else c.dim,
+            )
         }
     }
 }

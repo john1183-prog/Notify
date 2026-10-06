@@ -11,6 +11,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,7 +26,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +38,7 @@ import app.notify.AppVM
 import app.notify.engine.Scheduler
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 private fun openNotificationSettings(ctx: Context) = safeStart(
     ctx,
@@ -58,6 +62,7 @@ fun TodayScreen(vm: AppVM, resumeTick: Int, goBank: () -> Unit, goRhythm: () -> 
     val c = Look.c
     val is24 = Look.is24
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     val totalN by vm.total.collectAsState()
     val foldersN by vm.folders.collectAsState()
     val rhythmsN by vm.rhythms.collectAsState()
@@ -145,7 +150,10 @@ fun TodayScreen(vm: AppVM, resumeTick: Int, goBank: () -> Unit, goRhythm: () -> 
                 Caption("From ${folder?.name ?: "your bank"}. ${deliveredText(m.shown)}.", color = c.ink)
             }
             Gap(6)
-            TextAction("Show another", { vm.nextHero() })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextAction("Show another", { vm.nextHero() })
+                TextAction("Send it to me", { scope.launch { vm.say(vm.testWord(m, "Test")) } }, color = c.dim)
+            }
         }
 
         Gap(30)

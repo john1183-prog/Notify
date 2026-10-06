@@ -15,6 +15,7 @@ import app.notify.data.Rhythm
 
 object Notifier {
     private const val CHANNEL = "words"
+    private const val TEST_ID = 1_000_000_000
 
     fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -35,21 +36,32 @@ object Notifier {
     }
 
     /** One notification slot per rhythm, so a new word replaces the last instead of piling up. */
-    @SuppressLint("MissingPermission")
     fun post(ctx: Context, r: Rhythm, m: Message): Boolean {
+        val hasLabel = m.label.isNotBlank()
+        return show(ctx, r.id.toInt(), if (hasLabel) m.label else r.name, if (hasLabel) r.name else null, m)
+    }
+
+    /** A one-off notification for trying things out. It changes no counters and no schedules. */
+    fun test(ctx: Context, title: String, m: Message): Boolean =
+        show(ctx, TEST_ID, title.ifBlank { "Notify" }, m.label.takeIf { it.isNotBlank() }, m)
+
+    @SuppressLint("MissingPermission")
+    private fun show(ctx: Context, id: Int, title: String, subText: String?, m: Message): Boolean {
         ensureChannel(ctx)
+        // Tapping the notification opens Today on this very word.
         val open = PendingIntent.getActivity(
             ctx,
-            0,
-            Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            id,
+            Intent(ctx, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(MainActivity.EXTRA_WORD, m.id),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val hasLabel = m.label.isNotBlank()
         val n = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_notify)
             .setColor(0xFF3F62E0.toInt())
-            .setContentTitle(if (hasLabel) m.label else r.name)
-            .setSubText(if (hasLabel) r.name else null)
+            .setContentTitle(title)
+            .setSubText(subText)
             .setContentText(m.text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(m.text))
             .setContentIntent(open)
@@ -57,7 +69,7 @@ object Notifier {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
         return try {
-            NotificationManagerCompat.from(ctx).notify(r.id.toInt(), n)
+            NotificationManagerCompat.from(ctx).notify(id, n)
             true
         } catch (_: SecurityException) {
             false // Permission missing; the Today screen explains how to grant it.

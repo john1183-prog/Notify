@@ -21,9 +21,16 @@ and install `app-debug.apk`.
 - `data/` Room database: folders, words, rhythms
 - `ui/` Compose screens and the design system (`Theme.kt` explains the colour idea)
 
+## Tests and CI
+
+`gradle :app:testDebugUnitTest` runs the scheduling and picking tests. CI also builds the debug and release
+(shrunk) APKs and publishes a short log plus the Room schema to the `build-log` branch for quick debugging.
+
 ## Behaviour worth knowing
 
 - Random rhythms use inexact alarms; only fixed times ask for exact alarms.
 - Notifications need permission on Android 13+; the Today screen prompts when it is missing.
 - A reminder is a rhythm pointed at a folder with a single word.
+- Back up from the Bank screen: Export writes folders, words and rhythms to a JSON file; Import adds them back.
+- Tapping a notification opens Today on that word.
 - A new word replaces the previous notification from the same rhythm instead of stacking.

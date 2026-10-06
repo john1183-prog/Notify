@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -27,16 +29,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.notify.AppVM
+import app.notify.Notice
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 
 private val Tabs = listOf("Today", "Bank", "Rhythm")
 
 @Composable
-fun App(vm: AppVM, resumeTick: Int) {
+fun App(vm: AppVM, resumeTick: Int, wordTick: Int) {
     val c = Look.c
     var tab by rememberSaveable { mutableStateOf(0) }
     var folderId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     BackHandler(enabled = folderId != null && tab == 1) { folderId = null }
+
+    // A tapped notification brings the app to Today, showing that word.
+    LaunchedEffect(wordTick) {
+        if (wordTick > 0) {
+            tab = 0
+            folderId = null
+        }
+    }
+    val notice by vm.notice.collectAsState()
 
     Column(Modifier.fillMaxSize().background(c.bg).windowInsetsPadding(WindowInsets.statusBars)) {
         Box(Modifier.weight(1f)) {
@@ -50,6 +64,7 @@ fun App(vm: AppVM, resumeTick: Int) {
                 else -> RhythmScreen(vm)
             }
         }
+        notice?.let { n -> NoticeBar(n, onDismiss = { vm.dismissNotice() }) }
         NavBar(tab) {
             if (it == 1 && tab == 1) folderId = null // tapping Bank again goes back to the folder list
             tab = it
@@ -70,6 +85,33 @@ private fun NavBar(selected: Int, onSelect: (Int) -> Unit) {
                 Box(Modifier.width(32.dp).height(3.dp).background(if (on) c.ink else Color.Transparent))
                 Gap(13)
                 Text(name, style = Type.action, color = if (on) c.ink else c.dim)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoticeBar(n: Notice, onDismiss: () -> Unit) {
+    val c = Look.c
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(c.raised)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(c.ink)
+                .padding(start = 18.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(n.text, style = Type.body, color = c.bg, modifier = Modifier.weight(1f).padding(vertical = 12.dp))
+            if (n.action != null && n.run != null) {
+                TextAction(n.action, { n.run.invoke() }, color = c.bg)
+            } else {
+                TextAction("OK", onDismiss, color = c.bg)
             }
         }
     }

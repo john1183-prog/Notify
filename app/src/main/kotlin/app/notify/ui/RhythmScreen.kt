@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,7 @@ import app.notify.data.Rhythm
 import app.notify.engine.joinTimes
 import app.notify.engine.parseTimes
 import app.notify.engine.windowMinutes
+import kotlinx.coroutines.launch
 
 private val DayNames = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
@@ -151,6 +153,7 @@ fun RhythmScreen(vm: AppVM) {
             linked = emptySet(),
             onDismiss = { creating = false },
             onSave = { r, ids -> vm.saveRhythm(r, ids); creating = false },
+            onTest = { ids, title -> vm.testSend(ids, title) },
             onDelete = null,
         )
     }
@@ -161,6 +164,7 @@ fun RhythmScreen(vm: AppVM) {
             linked = links[r.id] ?: emptySet(),
             onDismiss = { editing = null },
             onSave = { nr, ids -> vm.saveRhythm(nr, ids); editing = null },
+            onTest = { ids, title -> vm.testSend(ids, title) },
             onDelete = { vm.deleteRhythm(r); editing = null },
         )
     }
@@ -184,11 +188,14 @@ fun RhythmEditor(
     linked: Set<Long>,
     onDismiss: () -> Unit,
     onSave: (Rhythm, List<Long>) -> Unit,
+    onTest: suspend (List<Long>, String) -> String,
     onDelete: (() -> Unit)?,
 ) {
     val c = Look.c
     val is24 = Look.is24
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var testResult by remember { mutableStateOf("") }
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var shuffle by remember { mutableStateOf(initial?.shuffle ?: true) }
     var fixed by remember { mutableStateOf(initial?.fixedTimes ?: false) }
@@ -200,6 +207,7 @@ fun RhythmEditor(
     var picked by remember { mutableStateOf(linked) }
     var confirming by remember { mutableStateOf(false) }
 
+    val folderNames = folders.filter { it.id in picked }.map { it.name }
     val windowLen = windowMinutes(windowStart, windowEnd)
     val timingOk = if (fixed) times.isNotEmpty() else windowLen >= 30
     val valid = timingOk && (days and 127) != 0
@@ -311,7 +319,18 @@ fun RhythmEditor(
             Caption("Choose at least one day.")
         }
 
-        Gap(28)
+        Gap(22)
+        TextAction(
+            "Send a test word now",
+            {
+                scope.launch {
+                    testResult = onTest(picked.toList(), name.trim().ifEmpty { folderNames.firstOrNull() ?: "Test" })
+                }
+            },
+        )
+        if (testResult.isNotEmpty()) Caption(testResult)
+
+        Gap(22)
         if (confirming && onDelete != null) {
             Text("Delete this rhythm?", style = Type.body, color = c.ink)
             Gap(12)
@@ -328,7 +347,6 @@ fun RhythmEditor(
                 GapW(8)
                 InkButton("Save", {
                     val base = initial ?: Rhythm(name = "")
-                    val folderNames = folders.filter { it.id in picked }.map { it.name }
                     onSave(
                         base.copy(
                             name = name.trim().ifEmpty { folderNames.firstOrNull() ?: "Rhythm" },

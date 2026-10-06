@@ -25,9 +25,13 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
@@ -134,8 +138,19 @@ fun LineField(
     style: TextStyle = Type.body,
     singleLine: Boolean = true,
     minLines: Int = 1,
+    autoFocus: Boolean = false,
 ) {
     val c = Look.c
+    val focus = remember { FocusRequester() }
+    if (autoFocus) {
+        LaunchedEffect(Unit) {
+            try {
+                focus.requestFocus()
+            } catch (_: IllegalStateException) {
+                // The field was not attached yet; the user can tap it.
+            }
+        }
+    }
     Column(modifier.fillMaxWidth()) {
         BasicTextField(
             value = value,
@@ -144,7 +159,7 @@ fun LineField(
             cursorBrush = SolidColor(c.ink),
             singleLine = singleLine,
             minLines = minLines,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(focus),
             decorationBox = { inner ->
                 Box(Modifier.padding(vertical = 8.dp)) {
                     if (value.isEmpty()) Text(hint, style = style, color = c.dim.copy(alpha = 0.7f))
