@@ -22,7 +22,10 @@ jobs:
       - name: Test, then build debug and release
         run: |
           set -o pipefail
-          gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+          # Debug and release run one after the other: both write Room's schema file, and running
+          # them at the same time can leave it half-written ("Empty schema file").
+          gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          gradle :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee -a build.log
       - name: Publish a short build log and the Room schema to the build-log branch
         if: always()
         run: |
