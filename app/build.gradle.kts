@@ -13,8 +13,19 @@ android {
         applicationId = "app.notify"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+    }
+
+    // A fixed debug key (it is not a secret) so every CI build can be installed over the last one.
+    // Without it each CI run signs with a fresh key and Android refuses to update the app in place.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

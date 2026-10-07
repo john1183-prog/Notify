@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -48,6 +49,7 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
     val c = Look.c
     val foldersN by vm.folders.collectAsState()
     val counts by vm.counts.collectAsState()
+    val soak by vm.soak.collectAsState()
     val totalN by vm.total.collectAsState()
     var adding by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -105,9 +107,9 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
                     )
                     GapW(16)
                     Column(Modifier.padding(vertical = 12.dp)) {
-                        Text(w.text, style = Type.word, color = c.ink)
+                        Text(w.text, style = Type.word, color = if (w.known) c.dim else c.ink)
                         Gap(4)
-                        Caption(folder?.name ?: "")
+                        Caption(listOfNotNull(folder?.name, if (w.known) "Known" else null).joinToString(". "))
                     }
                 }
             }
@@ -123,7 +125,15 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
                 ) {
                     Box(Modifier.size(14.dp).clip(CircleShape).background(hueOf(f.hue)))
                     GapW(16)
-                    Text(f.name, style = Type.heading, color = c.ink, modifier = Modifier.weight(1f))
+                    Column(Modifier.weight(1f)) {
+                        Text(f.name, style = Type.heading, color = c.ink)
+                        val strip = soak?.get(f.id)
+                        if (!strip.isNullOrEmpty()) {
+                            Gap(8)
+                            SoakStrip(strip, hueOf(f.hue))
+                        }
+                    }
+                    GapW(12)
                     Text("${counts?.get(f.id) ?: 0}", style = Type.body, color = c.dim)
                 }
             }
@@ -170,7 +180,7 @@ fun BankScreen(vm: AppVM, onOpen: (Long) -> Unit) {
             folders = folders,
             folderId = w.folderId,
             onDismiss = { editingWord = null },
-            onSave = { t, l, fid -> vm.updateMessage(w.copy(text = t.trim(), label = l.trim(), folderId = fid)); editingWord = null },
+            onSave = { t, l, fid, k -> vm.updateMessage(w.copy(text = t.trim(), label = l.trim(), folderId = fid, known = k)); editingWord = null },
             onSaveAndNext = null,
             onDelete = { vm.deleteMessage(w); editingWord = null },
         )
@@ -187,6 +197,7 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
     var editingWord by remember { mutableStateOf<Message?>(null) }
     var addMode by remember { mutableStateOf<Boolean?>(null) } // null = closed, false = one word, true = many
     var dialogKey by remember { mutableIntStateOf(0) }
+    var reordering by remember { mutableStateOf(false) }
 
     val folder = foldersN?.firstOrNull { it.id == folderId }
     // Leave this screen once the folder is gone (deleted), but not while folders are still loading.
@@ -201,6 +212,7 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             TextAction("‹ Bank", onBack, color = c.dim)
             Box(Modifier.weight(1f))
+            if ((words?.size ?: 0) > 1) TextAction(if (reordering) "Done" else "Reorder", { reordering = !reordering })
             TextAction("Edit folder", { editingFolder = true })
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp)) {
@@ -216,6 +228,7 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
                         when {
                             words == null -> ""
                             words.isEmpty() -> "Nothing here yet. Add a verse, a quote or a lesson you want to keep."
+                            reordering -> "Use the arrows to move words. In-order rhythms follow this order."
                             else -> "A word's colour deepens each time it is delivered."
                         },
                         style = Type.body,
@@ -224,22 +237,35 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
                     Gap(24)
                 }
             }
-            items(words ?: emptyList(), key = { it.id }) { w ->
+            itemsIndexed(words ?: emptyList(), key = { _, w -> w.id }) { i, w ->
+                val last = (words?.size ?: 0) - 1
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .height(IntrinsicSize.Min)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable { editingWord = w },
+                        .clickable(enabled = !reordering) { editingWord = w },
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.fillMaxHeight().width(4.dp).clip(CircleShape).background(soakColor(hue, w.shown)))
+                    Box(
+                        Modifier.fillMaxHeight().width(4.dp).clip(CircleShape)
+                            .background(soakColor(hue, if (w.known) 8 else w.shown)),
+                    )
                     GapW(16)
-                    Column(Modifier.padding(vertical = 14.dp)) {
-                        Text(w.text, style = Type.word, color = c.ink)
+                    Column(Modifier.weight(1f).padding(vertical = 14.dp)) {
+                        Text(w.text, style = Type.word, color = if (w.known) c.dim else c.ink)
                         Gap(6)
                         Caption(
-                            if (w.label.isBlank()) deliveredText(w.shown) else "${w.label}. ${deliveredText(w.shown)}.",
+                            buildList {
+                                if (w.label.isNotBlank()) add(w.label)
+                                if (w.known) add("Known")
+                                add(deliveredText(w.shown))
+                            }.joinToString(". ") + ".",
                         )
+                    }
+                    if (reordering) {
+                        TextAction("▲", { vm.moveWord(w, -1) }, color = if (i == 0) c.line else c.ink, description = "Move up")
+                        TextAction("▼", { vm.moveWord(w, 1) }, color = if (i == last) c.line else c.ink, description = "Move down")
                     }
                 }
             }
@@ -271,7 +297,7 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
             folders = allFolders,
             folderId = w.folderId,
             onDismiss = { editingWord = null },
-            onSave = { t, l, fid -> vm.updateMessage(w.copy(text = t.trim(), label = l.trim(), folderId = fid)); editingWord = null },
+            onSave = { t, l, fid, k -> vm.updateMessage(w.copy(text = t.trim(), label = l.trim(), folderId = fid, known = k)); editingWord = null },
             onSaveAndNext = null,
             onDelete = { vm.deleteMessage(w); editingWord = null },
         )
@@ -285,7 +311,7 @@ fun FolderScreen(vm: AppVM, folderId: Long, onBack: () -> Unit) {
                 folders = allFolders,
                 folderId = folderId,
                 onDismiss = { addMode = null },
-                onSave = { t, l, _ ->
+                onSave = { t, l, _, _ ->
                     val texts = if (many) splitWords(t) else listOf(t.trim())
                     vm.addMessages(folderId, texts, if (many) "" else l.trim())
                     addMode = null

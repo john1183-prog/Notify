@@ -1,6 +1,7 @@
 package app.notify.data
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Delete
@@ -26,41 +27,92 @@ abstract class BankDao {
     @Delete abstract suspend fun deleteFolder(f: Folder)
 
     // Words
-    @Query("SELECT * FROM messages WHERE folderId = :folderId ORDER BY id")
+    @Query("SELECT * FROM messages WHERE folderId = :folderId ORDER BY position, id")
     abstract fun messages(folderId: Long): Flow<List<Message>>
 
     @Query("SELECT COUNT(*) FROM messages")
     abstract fun messageCount(): Flow<Int>
 
-    @Query("SELECT * FROM messages ORDER BY RANDOM() LIMIT 1")
+    @Query("SELECT * FROM messages ORDER BY known, RANDOM() LIMIT 1")
     abstract suspend fun randomMessage(): Message?
 
-    @Query("SELECT * FROM messages WHERE id != :id ORDER BY RANDOM() LIMIT 1")
+    @Query("SELECT * FROM messages WHERE id != :id ORDER BY known, RANDOM() LIMIT 1")
     abstract suspend fun randomOther(id: Long): Message?
 
     @Query("SELECT * FROM messages WHERE id = :id")
     abstract suspend fun message(id: Long): Message?
 
     /** Case-insensitive match on text or source, without LIKE wildcards getting in the way. */
-    @Query("SELECT * FROM messages WHERE instr(lower(text), lower(:q)) > 0 OR instr(lower(label), lower(:q)) > 0 ORDER BY folderId, id LIMIT 100")
+    @Query("SELECT * FROM messages WHERE instr(lower(text), lower(:q)) > 0 OR instr(lower(label), lower(:q)) > 0 ORDER BY folderId, position, id LIMIT 100")
     abstract fun search(q: String): Flow<List<Message>>
 
     // One-shot snapshots for backup and import
     @Query("SELECT * FROM folders ORDER BY id")
     abstract suspend fun foldersOnce(): List<Folder>
 
-    @Query("SELECT * FROM messages ORDER BY folderId, id")
+    @Query("SELECT * FROM messages ORDER BY folderId, position, id")
     abstract suspend fun wordsOnce(): List<Message>
 
     @Query("SELECT * FROM rhythm_folders")
     abstract suspend fun linksOnce(): List<RhythmFolder>
 
     /** Ids only: delivery never needs to load every word's text. */
-    @Query("SELECT id FROM messages ORDER BY folderId, id")
+    /** Words eligible for delivery: known words rest. Ids only, so delivery never loads every text. */
+    @Query("SELECT id FROM messages WHERE known = 0 ORDER BY folderId, position, id")
     abstract suspend fun poolIds(): List<Long>
 
-    @Query("SELECT id FROM messages WHERE folderId IN (:folderIds) ORDER BY folderId, id")
+    @Query("SELECT id FROM messages WHERE known = 0 AND folderId IN (:folderIds) ORDER BY folderId, position, id")
     abstract suspend fun poolIdsIn(folderIds: List<Long>): List<Long>
+
+    @Query("SELECT id, shown FROM messages WHERE known = 0 ORDER BY folderId, position, id")
+    abstract suspend fun poolRows(): List<PoolRow>
+
+    @Query("SELECT id, shown FROM messages WHERE known = 0 AND folderId IN (:folderIds) ORDER BY folderId, position, id")
+    abstract suspend fun poolRowsIn(folderIds: List<Long>): List<PoolRow>
+
+    @Query("SELECT folderId, shown, known FROM messages ORDER BY folderId, position, id")
+    abstract fun shownRows(): Flow<List<ShownRow>>
+
+    @Query("UPDATE messages SET known = :known WHERE id = :id")
+    abstract suspend fun setKnown(id: Long, known: Boolean)
+
+    // Order inside a folder
+    @Query("SELECT COALESCE(MAX(position), 0) FROM messages WHERE folderId = :folderId")
+    abstract suspend fun maxPosition(folderId: Long): Int
+
+    @Query("SELECT * FROM messages WHERE folderId = :folderId ORDER BY position, id")
+    abstract suspend fun wordsInFolder(folderId: Long): List<Message>
+
+    @Query("UPDATE messages SET position = :position WHERE id = :id")
+    abstract suspend fun setPosition(id: Long, position: Int)
+
+    /** Moves a word one step up (-1) or down (+1), renumbering the folder so ties can never block a move. */
+    @Transaction
+    open suspend fun moveWord(folderId: Long, id: Long, delta: Int) {
+        val list = wordsInFolder(folderId)
+        val from = list.indexOfFirst { it.id == id }
+        val to = from + delta
+        if (from < 0 || to !in list.indices) return
+        val reordered = list.toMutableList().also { it.add(to, it.removeAt(from)) }
+        reordered.forEachIndexed { index, m -> if (m.position != index + 1) setPosition(m.id, index + 1) }
+    }
+
+    // Delivery history
+    @Insert abstract suspend fun insertDelivery(d: Delivery)
+
+    @Query("DELETE FROM deliveries WHERE id NOT IN (SELECT id FROM deliveries ORDER BY deliveredAt DESC, id DESC LIMIT 200)")
+    abstract suspend fun pruneDeliveries()
+
+    @Query("SELECT messages.*, deliveries.deliveredAt AS deliveredAt FROM deliveries INNER JOIN messages ON messages.id = deliveries.messageId ORDER BY deliveries.deliveredAt DESC, deliveries.id DESC LIMIT 5")
+    abstract fun recent(): Flow<List<RecentDelivery>>
+
+    /** One real delivery: counts it and remembers it, together or not at all. */
+    @Transaction
+    open suspend fun recordDelivery(id: Long, at: Long) {
+        markShown(id, at)
+        insertDelivery(Delivery(messageId = id, deliveredAt = at))
+        pruneDeliveries()
+    }
 
     @Insert abstract suspend fun insertMessages(m: List<Message>)
     @Update abstract suspend fun updateMessage(m: Message)
@@ -120,9 +172,12 @@ abstract class BankDao {
 }
 
 @Database(
-    entities = [Folder::class, Message::class, Rhythm::class, RhythmFolder::class],
-    version = 1,
+    entities = [Folder::class, Message::class, Rhythm::class, RhythmFolder::class, Delivery::class],
+    version = 2,
     exportSchema = true,
+    // Version 1 -> 2 only adds columns (with defaults) and one table, so Room can migrate by itself.
+    // It checks this against schemas/app.notify.data.Db/1.json at build time.
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 abstract class Db : RoomDatabase() {
     abstract fun dao(): BankDao

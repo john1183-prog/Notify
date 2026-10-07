@@ -134,4 +134,30 @@ class LogicTest {
         assertNotNull(parseIds("1,2,x,3"))
         assertEquals(listOf(1L, 2L, 3L), parseIds("1,2,x,3"))
     }
+
+    @Test fun freshFavoursWordsDeliveredLeast() {
+        val pool = listOf(1L to 0, 2L to 10)
+        val rnd = Random(11)
+        val firstShare = (1..2000).count { pickFresh(pool, 0L, rnd) == 1L } / 2000.0
+        assertTrue(firstShare > 0.95)
+    }
+
+    @Test fun freshNeverRepeatsTheLastWordWhenThereIsChoice() {
+        val pool = listOf(1L to 0, 2L to 0, 3L to 0)
+        val rnd = Random(5)
+        repeat(300) { assertTrue(pickFresh(pool, 2L, rnd) != 2L) }
+    }
+
+    @Test fun freshKeepsTheOnlyWordEvenIfItWasLast() {
+        assertEquals(7L, pickFresh(listOf(7L to 3), 7L, Random(1)))
+    }
+
+    @Test fun freshWithNothingPicksNothing() = assertNull(pickFresh(emptyList(), 0L, Random(1)))
+
+    @Test fun freshStillReachesEveryWord() {
+        val pool = listOf(1L to 0, 2L to 4, 3L to 9)
+        val rnd = Random(21)
+        val seen = (1..5000).mapNotNull { pickFresh(pool, 0L, rnd) }.toSet()
+        assertEquals(setOf(1L, 2L, 3L), seen)
+    }
 }

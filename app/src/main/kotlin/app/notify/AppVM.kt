@@ -44,6 +44,12 @@ class AppVM(app: Application) : AndroidViewModel(app) {
         .map { l -> l.groupBy({ it.rhythmId }, { it.folderId }).mapValues { it.value.toSet() } }
         .hot()
 
+    /** Per folder, every word's delivery count: drives the colour strip on the Bank screen. */
+    val soak = dao.shownRows().map { rows -> rows.groupBy { it.folderId } }.hot()
+
+    /** The last few real deliveries, shown on Today. */
+    val recent = dao.recent().hot()
+
     fun messages(folderId: Long): Flow<List<Message>> = dao.messages(folderId)
     fun search(q: String): Flow<List<Message>> = if (q.isBlank()) flowOf(emptyList()) else dao.search(q.trim())
 
@@ -94,10 +100,29 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     }
 
     fun addMessages(folderId: Long, texts: List<String>, label: String) = viewModelScope.launch {
-        dao.insertMessages(texts.map { Message(folderId = folderId, text = it, label = label) })
+        // New words go to the end of the folder.
+        val base = dao.maxPosition(folderId)
+        dao.insertMessages(texts.mapIndexed { i, t -> Message(folderId = folderId, text = t, label = label, position = base + 1 + i) })
     }
 
-    fun updateMessage(m: Message) = viewModelScope.launch { dao.updateMessage(m) }
+    fun updateMessage(m: Message) = viewModelScope.launch {
+        // A word moved to another folder joins the end of that folder.
+        val before = dao.message(m.id)
+        val placed = if (before != null && before.folderId != m.folderId) m.copy(position = dao.maxPosition(m.folderId) + 1) else m
+        dao.updateMessage(placed)
+    }
+
+    fun moveWord(w: Message, delta: Int) = viewModelScope.launch { dao.moveWord(w.folderId, w.id, delta) }
+
+    /** Retires a word from delivery without deleting it. Undo brings it back. */
+    fun markKnown(m: Message) = viewModelScope.launch {
+        dao.setKnown(m.id, true)
+        say("Marked as known. It will rest.", "Undo") {
+            viewModelScope.launch { dao.setKnown(m.id, false) }
+            dismissNotice()
+        }
+        _hero.value = dao.randomOther(m.id) ?: dao.randomMessage()
+    }
     fun deleteMessage(m: Message) = viewModelScope.launch {
         dao.deleteMessage(m)
         say("Word deleted.", "Undo") {
@@ -125,16 +150,16 @@ class AppVM(app: Application) : AndroidViewModel(app) {
     }
 
     // Trying a notification without waiting for a schedule. These change no counters or schedules.
-    suspend fun testWord(word: Message, title: String): String = when {
-        !Notifier.canPost(ctx) -> "Notifications are off for Notify."
-        Notifier.test(ctx, title, word) -> "Sent. Check your notifications."
+    suspend fun testWord(word: Message, title: String, silent: Boolean = false): String = when {
+        !Notifier.canPost(ctx, silent) -> "Notifications are off for Notify."
+        Notifier.test(ctx, title, word, silent) -> "Sent. Check your notifications."
         else -> "The notification could not be posted."
     }
 
-    suspend fun testSend(folderIds: List<Long>, title: String): String {
+    suspend fun testSend(folderIds: List<Long>, title: String, silent: Boolean = false): String {
         val pool = if (folderIds.isEmpty()) dao.poolIds() else dao.poolIdsIn(folderIds)
         val word = pool.randomOrNull()?.let { dao.message(it) } ?: return "There are no words to send yet."
-        return testWord(word, title)
+        return testWord(word, title, silent)
     }
 
     // Backup

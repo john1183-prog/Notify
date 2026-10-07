@@ -17,12 +17,12 @@ object Backup {
         val links = dao.linksOnce().groupBy({ it.rhythmId }, { it.folderId })
         val nameOf = folders.associate { it.id to it.name }
 
-        val root = JSONObject().put("app", "notify").put("version", 1)
+        val root = JSONObject().put("app", "notify").put("version", 2)
         val folderArray = JSONArray()
         for (f in folders) {
             val wordArray = JSONArray()
             for (w in wordsByFolder[f.id].orEmpty()) {
-                wordArray.put(JSONObject().put("text", w.text).put("label", w.label).put("shown", w.shown))
+                wordArray.put(JSONObject().put("text", w.text).put("label", w.label).put("shown", w.shown).put("known", w.known))
             }
             folderArray.put(JSONObject().put("name", f.name).put("hue", f.hue).put("words", wordArray))
         }
@@ -33,6 +33,7 @@ object Backup {
                     .put("name", r.name).put("enabled", r.enabled).put("shuffle", r.shuffle)
                     .put("fixedTimes", r.fixedTimes).put("windowStart", r.windowStart).put("windowEnd", r.windowEnd)
                     .put("perDay", r.perDay).put("times", r.times).put("days", r.days)
+                    .put("smart", r.smart).put("silent", r.silent)
                     .put("folders", JSONArray(links[r.id].orEmpty().mapNotNull { nameOf[it] })),
             )
         }
@@ -64,11 +65,19 @@ object Backup {
             }
             val words = fo.optJSONArray("words") ?: JSONArray()
             val fresh = ArrayList<Message>()
+            val base = dao.maxPosition(folder.id)
             for (j in 0 until words.length()) {
                 val wo = words.getJSONObject(j)
                 val t = wo.optString("text").trim()
                 if (t.isEmpty() || !have.add(folder.id to t)) continue
-                fresh += Message(folderId = folder.id, text = t, label = wo.optString("label"), shown = wo.optInt("shown", 0))
+                fresh += Message(
+                    folderId = folder.id,
+                    text = t,
+                    label = wo.optString("label"),
+                    shown = wo.optInt("shown", 0),
+                    known = wo.optBoolean("known", false),
+                    position = base + fresh.size + 1, // keeps the order the file listed them in
+                )
             }
             if (fresh.isNotEmpty()) {
                 dao.insertMessages(fresh)
@@ -95,6 +104,8 @@ object Backup {
                 perDay = ro.optInt("perDay", 3),
                 times = ro.optString("times", "480,1200"),
                 days = ro.optInt("days", 127),
+                smart = ro.optBoolean("smart", false),
+                silent = ro.optBoolean("silent", false),
             )
             rhythmIds += dao.saveRhythm(r, ids)
         }

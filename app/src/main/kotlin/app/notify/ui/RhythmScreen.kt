@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,14 +54,19 @@ private val DayNames = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thurs
 /** One plain sentence that says everything a rhythm does. */
 private fun describe(r: Rhythm, folderNames: List<String>, is24: Boolean): String {
     val source = if (folderNames.isEmpty()) "the whole bank" else joinList(folderNames)
-    val order = if (r.shuffle) "shuffled" else "in order"
+    val order = when {
+        !r.shuffle -> "in order"
+        r.smart -> "favouring words delivered least"
+        else -> "shuffled"
+    }
     val timing = if (r.fixedTimes) {
         "at " + joinList(parseTimes(r.times).map { hhmm(it, is24) })
     } else {
         "${r.perDay} ${if (r.perDay == 1) "time" else "times"} a day between ${hhmm(r.windowStart, is24)} and ${hhmm(r.windowEnd, is24)}"
     }
     val days = if ((r.days and 127) == 127) "" else " on ${daysText(r.days)}"
-    return "Words from $source, $order, $timing$days."
+    val quiet = if (r.silent) ", without sound" else ""
+    return "Words from $source, $order, $timing$days$quiet."
 }
 
 @Composable
@@ -153,7 +159,7 @@ fun RhythmScreen(vm: AppVM) {
             linked = emptySet(),
             onDismiss = { creating = false },
             onSave = { r, ids -> vm.saveRhythm(r, ids); creating = false },
-            onTest = { ids, title -> vm.testSend(ids, title) },
+            onTest = { ids, title, quiet -> vm.testSend(ids, title, quiet) },
             onDelete = null,
         )
     }
@@ -164,7 +170,7 @@ fun RhythmScreen(vm: AppVM) {
             linked = links[r.id] ?: emptySet(),
             onDismiss = { editing = null },
             onSave = { nr, ids -> vm.saveRhythm(nr, ids); editing = null },
-            onTest = { ids, title -> vm.testSend(ids, title) },
+            onTest = { ids, title, quiet -> vm.testSend(ids, title, quiet) },
             onDelete = { vm.deleteRhythm(r); editing = null },
         )
     }
@@ -175,6 +181,34 @@ private fun SectionTitle(text: String) {
     Gap(22)
     Text(text, style = Type.action, color = Look.c.ink)
     Gap(10)
+}
+
+/** A single-choice row with a short explanation, for choices that need more than a label. */
+@Composable
+private fun ChoiceRow(selected: Boolean, title: String, detail: String, onClick: () -> Unit) {
+    val c = Look.c
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(if (selected) c.ink else Color.Transparent)
+                .border(1.dp, if (selected) c.ink else c.line, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { if (selected) Box(Modifier.size(8.dp).clip(CircleShape).background(c.bg)) }
+        GapW(14)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = Type.body, color = c.ink)
+            Caption(detail)
+        }
+    }
 }
 
 @Composable
@@ -188,7 +222,7 @@ fun RhythmEditor(
     linked: Set<Long>,
     onDismiss: () -> Unit,
     onSave: (Rhythm, List<Long>) -> Unit,
-    onTest: suspend (List<Long>, String) -> String,
+    onTest: suspend (List<Long>, String, Boolean) -> String,
     onDelete: (() -> Unit)?,
 ) {
     val c = Look.c
@@ -197,7 +231,9 @@ fun RhythmEditor(
     val scope = rememberCoroutineScope()
     var testResult by remember { mutableStateOf("") }
     var name by remember { mutableStateOf(initial?.name ?: "") }
-    var shuffle by remember { mutableStateOf(initial?.shuffle ?: true) }
+    // 0 = in order, 1 = shuffled, 2 = fresh first (shuffled, leaning toward words delivered least)
+    var order by remember { mutableIntStateOf(if (initial?.shuffle == false) 0 else if (initial?.smart == true) 2 else 1) }
+    var silent by remember { mutableStateOf(initial?.silent ?: false) }
     var fixed by remember { mutableStateOf(initial?.fixedTimes ?: false) }
     var windowStart by remember { mutableIntStateOf(initial?.windowStart ?: 480) }
     var windowEnd by remember { mutableIntStateOf(initial?.windowEnd ?: 1260) }
@@ -249,11 +285,9 @@ fun RhythmEditor(
         }
 
         SectionTitle("Order")
-        Row {
-            Pill("Shuffled", shuffle, { shuffle = true })
-            GapW(8)
-            Pill("In order", !shuffle, { shuffle = false })
-        }
+        ChoiceRow(order == 0, "In order", "Follows the order in each folder. You can reorder words in the Bank.") { order = 0 }
+        ChoiceRow(order == 1, "Shuffled", "Every word appears once before any repeats.") { order = 1 }
+        ChoiceRow(order == 2, "Fresh first", "Leans toward words delivered least, so newer words catch up.") { order = 2 }
 
         SectionTitle("When")
         Row {
@@ -319,12 +353,24 @@ fun RhythmEditor(
             Caption("Choose at least one day.")
         }
 
+        SectionTitle("Sound")
+        Row {
+            Pill("With sound", !silent, { silent = false })
+            GapW(8)
+            Pill("Silent", silent, { silent = true })
+        }
+        Gap(6)
+        Caption(
+            if (silent) "Silent words appear quietly in your notifications, with no sound or pop-up."
+            else "Words arrive with your phone's normal notification sound.",
+        )
+
         Gap(22)
         TextAction(
             "Send a test word now",
             {
                 scope.launch {
-                    testResult = onTest(picked.toList(), name.trim().ifEmpty { folderNames.firstOrNull() ?: "Test" })
+                    testResult = onTest(picked.toList(), name.trim().ifEmpty { folderNames.firstOrNull() ?: "Test" }, silent)
                 }
             },
         )
@@ -350,7 +396,9 @@ fun RhythmEditor(
                     onSave(
                         base.copy(
                             name = name.trim().ifEmpty { folderNames.firstOrNull() ?: "Rhythm" },
-                            shuffle = shuffle,
+                            shuffle = order != 0,
+                            smart = order == 2,
+                            silent = silent,
                             fixedTimes = fixed,
                             windowStart = windowStart,
                             windowEnd = windowEnd,

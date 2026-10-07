@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import app.notify.AppVM
@@ -67,6 +69,8 @@ fun TodayScreen(vm: AppVM, resumeTick: Int, goBank: () -> Unit, goRhythm: () -> 
     val foldersN by vm.folders.collectAsState()
     val rhythmsN by vm.rhythms.collectAsState()
     val hero by vm.hero.collectAsState()
+    val recent by vm.recent.collectAsState()
+    val scroll = rememberScrollState()
     var showHelp by remember { mutableStateOf(false) }
 
     LaunchedEffect(totalN) { if (totalN != null) vm.refreshHero() }
@@ -94,7 +98,7 @@ fun TodayScreen(vm: AppVM, resumeTick: Int, goBank: () -> Unit, goRhythm: () -> 
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .padding(horizontal = 24.dp, vertical = 20.dp),
     ) {
         Text(
@@ -152,8 +156,9 @@ fun TodayScreen(vm: AppVM, resumeTick: Int, goBank: () -> Unit, goRhythm: () -> 
             Gap(6)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextAction("Show another", { vm.nextHero() })
-                TextAction("Send it to me", { scope.launch { vm.say(vm.testWord(m, "Test")) } }, color = c.dim)
+                TextAction("I know this", { vm.markKnown(m) })
             }
+            TextAction("Send it to me", { scope.launch { vm.say(vm.testWord(m, "Test")) } }, color = c.dim)
         }
 
         Gap(30)
@@ -167,6 +172,30 @@ fun TodayScreen(vm: AppVM, resumeTick: Int, goBank: () -> Unit, goRhythm: () -> 
         } else {
             Text("Nothing is scheduled.", style = Type.body, color = c.dim)
             TextAction("Set a rhythm", goRhythm)
+        }
+
+        val recentList = recent
+        if (!recentList.isNullOrEmpty()) {
+            Gap(30)
+            Text("Recent", style = Type.heading, color = c.ink)
+            Gap(6)
+            recentList.forEach { d ->
+                val w = d.message
+                val from = folders.firstOrNull { it.id == w.folderId }?.name
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            vm.showWord(w.id)
+                            scope.launch { scroll.animateScrollTo(0) }
+                        }
+                        .padding(horizontal = 4.dp, vertical = 10.dp),
+                ) {
+                    Text(w.text, style = Type.body, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Caption(listOfNotNull(from, agoText(d.deliveredAt, now)).joinToString(". "))
+                }
+            }
         }
 
         Gap(24)

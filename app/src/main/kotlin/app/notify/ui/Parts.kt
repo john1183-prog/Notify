@@ -7,11 +7,14 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -36,10 +39,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import app.notify.data.ShownRow
 
 @Composable
 fun Gap(h: Int) = Spacer(Modifier.height(h.dp))
@@ -115,12 +121,19 @@ fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, 
 }
 
 @Composable
-fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Look.c.ink) {
+fun TextAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    color: Color = Look.c.ink,
+    description: String? = null,
+) {
     Box(
         modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .clip(CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
+            .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -214,5 +227,21 @@ fun safeStart(ctx: Context, intent: Intent) {
         ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (_: ActivityNotFoundException) {
     } catch (_: SecurityException) {
+    }
+}
+
+/**
+ * A thin strip with one segment per word, coloured by how soaked in it is (a known word counts as fully soaked).
+ * Past 24 words the segments are averaged into 24 groups so the strip stays readable.
+ */
+@Composable
+fun SoakStrip(rows: List<ShownRow>, hue: Color, modifier: Modifier = Modifier) {
+    if (rows.isEmpty()) return
+    val groups = if (rows.size <= 24) rows.map { listOf(it) } else rows.chunked((rows.size + 23) / 24)
+    Row(modifier.fillMaxWidth().height(4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        groups.forEach { g ->
+            val shown = g.map { if (it.known) 8 else it.shown }.average().toInt()
+            Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).background(soakColor(hue, shown)))
+        }
     }
 }

@@ -4,13 +4,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -94,7 +98,7 @@ fun MessageDialog(
     folders: List<Folder>,
     folderId: Long,
     onDismiss: () -> Unit,
-    onSave: (text: String, label: String, folderId: Long) -> Unit,
+    onSave: (text: String, label: String, folderId: Long, known: Boolean) -> Unit,
     onSaveAndNext: ((text: String, label: String) -> Unit)?,
     onDelete: (() -> Unit)?,
 ) {
@@ -102,6 +106,7 @@ fun MessageDialog(
     var text by remember { mutableStateOf(initial?.text ?: "") }
     var label by remember { mutableStateOf(initial?.label ?: "") }
     var target by remember { mutableStateOf(folderId) }
+    var known by remember { mutableStateOf(initial?.known ?: false) }
 
     SheetDialog(onDismiss) {
         Text(
@@ -152,13 +157,41 @@ fun MessageDialog(
                 }
             }
         }
+        if (initial != null) {
+            Gap(16)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .toggleable(value = known, role = Role.Switch, onValueChange = { known = it })
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("I know this word", style = Type.body, color = c.ink)
+                    Caption("Known words rest. They stay in your bank but are no longer delivered.")
+                }
+                GapW(12)
+                Switch(
+                    checked = known,
+                    onCheckedChange = null,
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = c.ink,
+                        checkedThumbColor = c.bg,
+                        uncheckedTrackColor = c.raised,
+                        uncheckedThumbColor = c.dim,
+                        uncheckedBorderColor = c.line,
+                    ),
+                )
+            }
+        }
         Gap(22)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (onDelete != null) TextAction("Delete", onDelete, color = hueOf(2))
             Box(Modifier.weight(1f))
             TextAction("Cancel", onDismiss, color = c.dim)
             GapW(8)
-            InkButton("Save", { onSave(text, label, target) }, enabled = text.isNotBlank())
+            InkButton("Save", { onSave(text, label, target, known) }, enabled = text.isNotBlank())
         }
         if (onSaveAndNext != null) {
             TextAction(

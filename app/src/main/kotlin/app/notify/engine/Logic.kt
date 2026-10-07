@@ -93,3 +93,20 @@ fun pick(pool: List<Long>, shuffle: Boolean, cursor: Int, bag: List<Long>, rnd: 
     if (b.isEmpty()) b = pool.shuffled(rnd)
     return Pick(b.first(), cursor, b.drop(1))
 }
+
+/**
+ * Draws one word at random, favouring the ones delivered least, so new words catch up with old ones.
+ * Each word's weight is 1 / (1 + delivered)^2. The word delivered last time is skipped unless it is the only one.
+ * [pool] holds (id, delivered count) pairs.
+ */
+fun pickFresh(pool: List<Pair<Long, Int>>, lastId: Long, rnd: Random): Long? {
+    if (pool.isEmpty()) return null
+    val candidates = if (pool.size > 1) pool.filter { it.first != lastId } else pool
+    val weights = candidates.map { (_, shown) -> 1.0 / ((1.0 + shown) * (1.0 + shown)) }
+    var r = rnd.nextDouble() * weights.sum()
+    for (i in candidates.indices) {
+        r -= weights[i]
+        if (r <= 0) return candidates[i].first
+    }
+    return candidates.last().first
+}

@@ -15,6 +15,7 @@ import app.notify.data.Rhythm
 
 object Notifier {
     private const val CHANNEL = "words"
+    private const val QUIET = "words_quiet"
     private const val TEST_ID = 1_000_000_000
 
     fun ensureChannel(ctx: Context) {
@@ -26,27 +27,34 @@ object Notifier {
                 },
             )
         }
+        if (nm.getNotificationChannel(QUIET) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(QUIET, "Quiet words", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Words from silent rhythms: no sound, no pop-up"
+                },
+            )
+        }
     }
 
     /** False when notifications, or this channel, are switched off, so deliveries are not counted. */
-    fun canPost(ctx: Context): Boolean {
+    fun canPost(ctx: Context, silent: Boolean = false): Boolean {
         if (!NotificationManagerCompat.from(ctx).areNotificationsEnabled()) return false
-        val channel = ctx.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL)
+        val channel = ctx.getSystemService(NotificationManager::class.java).getNotificationChannel(if (silent) QUIET else CHANNEL)
         return channel == null || channel.importance != NotificationManager.IMPORTANCE_NONE
     }
 
     /** One notification slot per rhythm, so a new word replaces the last instead of piling up. */
     fun post(ctx: Context, r: Rhythm, m: Message): Boolean {
         val hasLabel = m.label.isNotBlank()
-        return show(ctx, r.id.toInt(), if (hasLabel) m.label else r.name, if (hasLabel) r.name else null, m)
+        return show(ctx, r.id.toInt(), if (hasLabel) m.label else r.name, if (hasLabel) r.name else null, m, r.silent)
     }
 
     /** A one-off notification for trying things out. It changes no counters and no schedules. */
-    fun test(ctx: Context, title: String, m: Message): Boolean =
-        show(ctx, TEST_ID, title.ifBlank { "Notify" }, m.label.takeIf { it.isNotBlank() }, m)
+    fun test(ctx: Context, title: String, m: Message, silent: Boolean = false): Boolean =
+        show(ctx, TEST_ID, title.ifBlank { "Notify" }, m.label.takeIf { it.isNotBlank() }, m, silent)
 
     @SuppressLint("MissingPermission")
-    private fun show(ctx: Context, id: Int, title: String, subText: String?, m: Message): Boolean {
+    private fun show(ctx: Context, id: Int, title: String, subText: String?, m: Message, silent: Boolean): Boolean {
         ensureChannel(ctx)
         // Tapping the notification opens Today on this very word.
         val open = PendingIntent.getActivity(
@@ -57,7 +65,7 @@ object Notifier {
                 .putExtra(MainActivity.EXTRA_WORD, m.id),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val n = NotificationCompat.Builder(ctx, CHANNEL)
+        val n = NotificationCompat.Builder(ctx, if (silent) QUIET else CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_notify)
             .setColor(0xFF3F62E0.toInt())
             .setContentTitle(title)

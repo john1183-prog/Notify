@@ -77,3 +77,14 @@ fun whenText(at: Long, now: Long, exact: Boolean, is24: Boolean): String {
         else -> "$weekday $part"
     }
 }
+
+fun agoText(at: Long, now: Long): String {
+    val m = ((now - at) / 60_000).coerceAtLeast(0)
+    return when {
+        m < 1 -> "Just now"
+        m < 60 -> "$m min ago"
+        m < 1440 -> "${m / 60} h ago"
+        m < 2880 -> "Yesterday"
+        else -> "${m / 1440} days ago"
+    }
+}

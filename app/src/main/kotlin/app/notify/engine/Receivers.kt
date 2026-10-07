@@ -31,14 +31,21 @@ class FireReceiver : BroadcastReceiver() {
             val r = dao.rhythm(id) ?: return
             val now = System.currentTimeMillis()
             var delivered = false
-            if (r.enabled && Notifier.canPost(ctx)) {
+            if (r.enabled && Notifier.canPost(ctx, r.silent)) {
                 val folderIds = dao.folderIdsFor(id)
-                val pool = if (folderIds.isEmpty()) dao.poolIds() else dao.poolIdsIn(folderIds)
-                val choice = pick(pool, r.shuffle, r.cursor, parseIds(r.bag), Random.Default)
+                val choice = if (r.smart && r.shuffle) {
+                    // Fresh first: lean toward words delivered least. The bag just remembers the last word.
+                    val rows = if (folderIds.isEmpty()) dao.poolRows() else dao.poolRowsIn(folderIds)
+                    pickFresh(rows.map { it.id to it.shown }, parseIds(r.bag).firstOrNull() ?: 0L, Random.Default)
+                        ?.let { Pick(it, r.cursor, listOf(it)) }
+                } else {
+                    val pool = if (folderIds.isEmpty()) dao.poolIds() else dao.poolIdsIn(folderIds)
+                    pick(pool, r.shuffle, r.cursor, parseIds(r.bag), Random.Default)
+                }
                 val word = choice?.let { dao.message(it.id) }
                 if (choice != null && word != null && Notifier.post(ctx, r, word)) {
-                    // Only a notification that was really posted counts as a delivery.
-                    dao.markShown(word.id, now)
+                    // Only a notification that was really posted counts, and it is remembered for the Recent list.
+                    dao.recordDelivery(word.id, now)
                     dao.saveProgress(id, choice.cursor, choice.bag.joinToString(","), now)
                     delivered = true
                 }
