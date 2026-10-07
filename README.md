@@ -34,3 +34,15 @@ and install `app-debug.apk`.
 - Back up from the Bank screen: Export writes folders, words and rhythms to a JSON file; Import adds them back.
 - Tapping a notification opens Today on that word.
 - A new word replaces the previous notification from the same rhythm instead of stacking.
+
+## Updating the app
+
+Debug builds are signed with the key in `app/debug.keystore`, so each new build installs over the last one
+and keeps your data. (It is a debug key, not a secret.) If an install fails with "conflicts with an existing
+package", the installed copy was signed with an older, different key: Export your bank in the app first,
+uninstall, install the new build, then Import.
+
+## Database upgrades
+
+The database is versioned. Room migrates 1 -> 2 automatically and checks it at build time against the
+schemas in `app/schemas`. Keep every schema file in git and add a migration whenever a table changes.
